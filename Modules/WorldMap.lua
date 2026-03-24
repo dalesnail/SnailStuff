@@ -4,7 +4,9 @@ local SnailStuff = ns.SnailStuff
 local UPDATE_INTERVAL = 0.10
 local MAX_PIN_SEARCH_DEPTH = 4
 local FALLBACK_PIN_SIZE = 24
+local GLOW_ATLAS = "GarrMission_CurrentEncounter-Glow"
 local GLOW_TEXTURE = "Interface\\Buttons\\UI-ActionButton-Border"
+local GLOW_BASE_SIZE = 42
 local GLOW_COLOR = { 1.00, 0.84, 0.24 }
 local PING_TEXTURE = "Interface\\Minimap\\Ping\\ping2"
 local PING_BUTTON_WIDTH = 52
@@ -43,6 +45,61 @@ local function DebugPrint(message)
     if print then
         print(DEBUG_PREFIX .. SafeToString(message))
     end
+end
+
+local function AttachTooltip(frame, title, text)
+    if not frame or not title then
+        return
+    end
+
+    frame:EnableMouse(true)
+    frame:SetScript("OnEnter", function(selfFrame)
+        GameTooltip:SetOwner(selfFrame, "ANCHOR_RIGHT")
+        GameTooltip:SetText(title, 1, 0.82, 0)
+        if text and text ~= "" then
+            GameTooltip:AddLine(text, 0.92, 0.88, 0.80, true)
+        end
+        GameTooltip:Show()
+    end)
+    frame:SetScript("OnLeave", function()
+        GameTooltip:Hide()
+    end)
+end
+
+local function AttachControlTooltip(control, title, text)
+    if not control then
+        return
+    end
+
+    AttachTooltip(control, title, text)
+    if control.check then
+        AttachTooltip(control.check, title, text)
+    end
+    if control.label then
+        AttachTooltip(control.label, title, text)
+    end
+    if control.slider then
+        AttachTooltip(control.slider, title, text)
+    end
+end
+
+local function CompactCheckboxRow(row)
+    if not row or not row.check or not row.label then
+        return
+    end
+
+    row:SetHeight(30)
+    if row.description then
+        row.description:Hide()
+    end
+
+    row.check:ClearAllPoints()
+    row.check:SetPoint("LEFT", 0, 0)
+
+    row.label:ClearAllPoints()
+    row.label:SetPoint("LEFT", row.check, "RIGHT", 6, 1)
+    row.label:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    row.label:SetJustifyV("MIDDLE")
 end
 
 local function SetBooleanSetting(key, value)
@@ -89,24 +146,34 @@ module = SnailStuff:CreateModule("WorldMap", {
         subtitle = "UI modules for map and player-visibility improvements live here.",
         order = 25,
         build = function(page)
-            local worldMapSection = page:CreateSection("World Map", "Highlight your player position on the world map with a simple glow overlay.")
+            local worldMapSection = page:CreateSection("World Map", "")
             page:AnchorTopLevel(worldMapSection)
-            worldMapSection:SetHeight(430)
+            worldMapSection:SetHeight(392)
+            worldMapSection.description:Hide()
+            worldMapSection.contentArea:ClearAllPoints()
+            worldMapSection.contentArea:SetPoint("TOPLEFT", worldMapSection.separator, "BOTTOMLEFT", 0, -10)
+            worldMapSection.contentArea:SetPoint("TOPRIGHT", worldMapSection.separator, "BOTTOMRIGHT", 0, -10)
+            worldMapSection.contentArea:SetHeight(1)
 
-            local enabledRow = page:CreateCheckbox("Enable World Map", "Turns the world map glow overlay on or off without clearing saved settings.")
+            local enabledRow = page:CreateCheckbox("Enable World Map", "")
+            CompactCheckboxRow(enabledRow)
+            AttachControlTooltip(enabledRow, "Enable World Map", "Turns the world map module on or off without clearing saved settings.")
             page:AnchorSectionControl(worldMapSection, enabledRow)
             enabledRow.check:SetScript("OnClick", function(check)
                 SnailStuff:SetModuleEnabled(module.moduleName, check:GetChecked())
             end)
 
-            local glowToggle = page:CreateCheckbox("Enable Glow", "Shows the glow overlay at the player marker whenever the marker can be resolved.")
-            page:AnchorSectionControl(worldMapSection, glowToggle, enabledRow, 12)
+            local glowToggle = page:CreateCheckbox("Enable Glow", "")
+            CompactCheckboxRow(glowToggle)
+            AttachControlTooltip(glowToggle, "Enable Glow", "Shows the world map glow overlay at your player marker.")
+            page:AnchorSectionControl(worldMapSection, glowToggle, enabledRow, 6)
             glowToggle.check:SetScript("OnClick", function(check)
                 SetBooleanSetting("glowEnabled", check:GetChecked())
             end)
 
             local glowScale = page:CreateValueSlider("Glow Scale", 0.5, 2.0, 0.05)
-            page:AnchorSectionControl(worldMapSection, glowScale, glowToggle, 14)
+            AttachControlTooltip(glowScale, "Glow Scale", "Adjusts glow size relative to the 42x42 base atlas size.")
+            page:AnchorSectionControl(worldMapSection, glowScale, glowToggle, 8)
             glowScale.slider:SetScript("OnValueChanged", function(_, value)
                 value = tonumber(string.format("%.2f", value)) or 1.0
                 glowScale:SetDisplayValue(value)
@@ -118,7 +185,8 @@ module = SnailStuff:CreateModule("WorldMap", {
             end)
 
             local glowAlpha = page:CreateValueSlider("Glow Alpha", 0.1, 1.0, 0.05)
-            page:AnchorSectionControl(worldMapSection, glowAlpha, glowScale, 12)
+            AttachControlTooltip(glowAlpha, "Glow Alpha", "Controls glow transparency.")
+            page:AnchorSectionControl(worldMapSection, glowAlpha, glowScale, 8)
             glowAlpha.slider:SetScript("OnValueChanged", function(_, value)
                 value = tonumber(string.format("%.2f", value)) or 1.0
                 glowAlpha:SetDisplayValue(value)
@@ -129,14 +197,17 @@ module = SnailStuff:CreateModule("WorldMap", {
                 SetNumericSetting("glowAlpha", value)
             end)
 
-            local pingToggle = page:CreateCheckbox("Enable Ping Button", "Shows a small world map button that triggers a ping-style highlight at your player marker.")
-            page:AnchorSectionControl(worldMapSection, pingToggle, glowAlpha, 14)
+            local pingToggle = page:CreateCheckbox("Enable Ping Button", "")
+            CompactCheckboxRow(pingToggle)
+            AttachControlTooltip(pingToggle, "Enable Ping Button", "Shows a world map button that triggers a ping highlight at your marker.")
+            page:AnchorSectionControl(worldMapSection, pingToggle, glowAlpha, 8)
             pingToggle.check:SetScript("OnClick", function(check)
                 SetBooleanSetting("pingButtonEnabled", check:GetChecked())
             end)
 
             local pingSize = page:CreateValueSlider("Ping Size", 0.5, 2.0, 0.05)
-            page:AnchorSectionControl(worldMapSection, pingSize, pingToggle, 12)
+            AttachControlTooltip(pingSize, "Ping Size", "Adjusts the ping pulse size.")
+            page:AnchorSectionControl(worldMapSection, pingSize, pingToggle, 8)
             pingSize.slider:SetScript("OnValueChanged", function(_, value)
                 value = tonumber(string.format("%.2f", value)) or 1.0
                 pingSize:SetDisplayValue(value)
@@ -148,7 +219,8 @@ module = SnailStuff:CreateModule("WorldMap", {
             end)
 
             local pingDuration = page:CreateValueSlider("Ping Duration", 0.25, 3.0, 0.05)
-            page:AnchorSectionControl(worldMapSection, pingDuration, pingSize, 12)
+            AttachControlTooltip(pingDuration, "Ping Duration", "Controls how long each ping pulse lasts.")
+            page:AnchorSectionControl(worldMapSection, pingDuration, pingSize, 8)
             pingDuration.slider:SetScript("OnValueChanged", function(_, value)
                 value = tonumber(string.format("%.2f", value)) or 1.0
                 pingDuration:SetDisplayValue(value)
@@ -159,7 +231,7 @@ module = SnailStuff:CreateModule("WorldMap", {
                 SetNumericSetting("pingDuration", value)
             end)
 
-            page.content:SetHeight(worldMapSection:GetHeight() + 20)
+            page.content:SetHeight(worldMapSection:GetHeight() + 16)
 
             page.RefreshControls = function()
                 local settings = module:GetSettings()
@@ -418,7 +490,7 @@ function module:ResolvePingButtonAnchor()
         return nil
     end
 
-    anchor = worldMapFrame.ScrollContainer or worldMapFrame.BorderFrame or worldMapFrame
+    anchor = worldMapFrame.BorderFrame or worldMapFrame
     if self:IsFrameUsable(anchor) then
         self.runtime.resolvedButtonAnchor = anchor
         return anchor
@@ -483,7 +555,11 @@ function module:EnsureGlowFrame(parent)
 
     local glowTexture = glowFrame:CreateTexture(nil, "ARTWORK")
     glowTexture:SetAllPoints()
-    glowTexture:SetTexture(GLOW_TEXTURE)
+    if glowTexture.SetAtlas and GLOW_ATLAS then
+        glowTexture:SetAtlas(GLOW_ATLAS, true)
+    else
+        glowTexture:SetTexture(GLOW_TEXTURE)
+    end
     glowTexture:SetBlendMode("ADD")
     glowTexture:SetVertexColor(GLOW_COLOR[1], GLOW_COLOR[2], GLOW_COLOR[3], 1)
 
@@ -508,11 +584,11 @@ function module:PositionPingButton()
     button:ClearAllPoints()
 
     if anchor == worldMapFrame then
-        button:SetPoint("TOPRIGHT", worldMapFrame, "TOPRIGHT", -48, -32)
+        button:SetPoint("BOTTOMLEFT", worldMapFrame, "BOTTOMLEFT", 14, 36)
         return
     end
 
-    button:SetPoint("TOPRIGHT", anchor, "TOPRIGHT", -10, -10)
+    button:SetPoint("BOTTOMLEFT", anchor, "BOTTOMLEFT", 12, 10)
 end
 
 function module:EnsurePingButton()
@@ -677,18 +753,18 @@ function module:RequestImmediateUpdate()
 end
 
 function module:OnUpdate(elapsed)
-    self:EnsureHooks()
+    self:UpdatePingAnimation(elapsed)
 
     self.runtime.updateElapsed = self.runtime.updateElapsed + (elapsed or 0)
     if self.runtime.updateElapsed < UPDATE_INTERVAL then
         return
     end
 
-    local tickElapsed = self.runtime.updateElapsed
+    self:EnsureHooks()
+
     self.runtime.updateElapsed = 0
     self:ResetResolvedTargets()
     self:UpdateGlow()
-    self:UpdatePingAnimation(tickElapsed)
     self:RefreshPingButton()
 end
 
@@ -840,16 +916,7 @@ function module:GetGlowSize()
     local settings = self:GetSettings()
     local scale = settings and tonumber(settings.glowScale) or 1.0
     scale = Clamp(scale, 0.5, 2.0)
-
-    local pin = self.runtime and self.runtime.resolvedPin
-    local baseSize = FALLBACK_PIN_SIZE
-    if pin and pin.GetWidth and pin.GetHeight then
-        local pinWidth = pin:GetWidth() or 0
-        local pinHeight = pin:GetHeight() or 0
-        baseSize = math.max(baseSize, pinWidth, pinHeight)
-    end
-
-    return baseSize * 2.6 * scale
+    return GLOW_BASE_SIZE * scale
 end
 
 function module:GetPingSize()
@@ -895,10 +962,11 @@ function module:ApplyPingVisuals(progress)
 
     progress = Clamp(progress or 0, 0, 1)
 
-    local startSize = self:GetPingSize() * 0.45
+    local startSize = self:GetPingSize() * 0.50
     local endSize = self:GetPingSize()
-    local size = startSize + ((endSize - startSize) * progress)
-    local alpha = 1 - progress
+    local eased = 1 - ((1 - progress) * (1 - progress))
+    local size = startSize + ((endSize - startSize) * eased)
+    local alpha = Clamp(1 - eased, 0, 1)
 
     self.runtime.pingFrame:SetSize(size, size)
     self.runtime.pingTexture:SetAlpha(alpha)
