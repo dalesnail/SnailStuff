@@ -12,7 +12,6 @@ local PING_TEXTURE = "Interface\\Minimap\\Ping\\ping2"
 local PING_BUTTON_WIDTH = 52
 local PING_BUTTON_HEIGHT = 22
 local PING_COLOR = { 1.00, 0.82, 0.20 }
-local DEBUG_PREFIX = "|cffd8b34f[SnailStuff:WorldMap:DEBUG]|r "
 
 local module
 
@@ -26,25 +25,6 @@ local function Clamp(value, minValue, maxValue)
     end
 
     return value
-end
-
-local function SafeToString(value)
-    if value == nil then
-        return "nil"
-    end
-
-    return tostring(value)
-end
-
-local function DebugPrint(message)
-    if DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.AddMessage then
-        DEFAULT_CHAT_FRAME:AddMessage(DEBUG_PREFIX .. SafeToString(message))
-        return
-    end
-
-    if print then
-        print(DEBUG_PREFIX .. SafeToString(message))
-    end
 end
 
 local function AttachTooltip(frame, title, text)
@@ -308,43 +288,12 @@ function module:EnsureRuntime()
         resolvedButtonAnchor = nil,
         resolvedPin = nil,
         lastAnchorMode = nil,
-        debugCache = {},
     }
 
     self.runtime.updateDriver:Hide()
     self.runtime.updateDriver:SetScript("OnUpdate", function(_, elapsed)
         module:OnUpdate(elapsed)
     end)
-end
-
-function module:DebugState(key, value)
-    self:EnsureRuntime()
-
-    local normalized = SafeToString(value)
-    if self.runtime.debugCache[key] == normalized then
-        return
-    end
-
-    self.runtime.debugCache[key] = normalized
-    DebugPrint(normalized)
-end
-
-function module:DescribeFrame(frame)
-    if not frame then
-        return "nil"
-    end
-
-    local name = frame.GetName and frame:GetName()
-    if name and name ~= "" then
-        return name
-    end
-
-    local objectType = frame.GetObjectType and frame:GetObjectType()
-    if objectType then
-        return objectType
-    end
-
-    return "frame"
 end
 
 function module:IsFrameUsable(frame)
@@ -410,12 +359,6 @@ function module:GetWorldMapFrame()
     worldMapFrame = self:FindNamedFrame("WorldMapFrame")
     self.runtime.resolvedWorldMapFrame = worldMapFrame
 
-    if worldMapFrame then
-        self:DebugState("worldMapFrame", "world map frame resolved: " .. self:DescribeFrame(worldMapFrame))
-    else
-        self:DebugState("worldMapFrame", "world map frame resolved: failed")
-    end
-
     return worldMapFrame
 end
 
@@ -450,7 +393,6 @@ function module:ResolveOverlayParent()
     local worldMapFrame = self:GetWorldMapFrame()
     if not worldMapFrame then
         self.runtime.resolvedOverlayParent = nil
-        self:DebugState("overlayParent", "overlay parent resolved: failed")
         return nil
     end
 
@@ -466,13 +408,11 @@ function module:ResolveOverlayParent()
         local candidate = candidates[index]
         if self:IsDrawableFrame(candidate) then
             self.runtime.resolvedOverlayParent = candidate
-            self:DebugState("overlayParent", "overlay parent resolved: " .. self:DescribeFrame(candidate))
             return candidate
         end
     end
 
     self.runtime.resolvedOverlayParent = nil
-    self:DebugState("overlayParent", "overlay parent resolved: failed")
     return nil
 end
 
@@ -690,7 +630,6 @@ function module:RefreshPingButton()
     local button = self:EnsurePingButton()
     local worldMapFrame = self:GetWorldMapFrame()
     if not button or not worldMapFrame then
-        self:DebugState("pingButton", "ping button hidden: no world map frame")
         return
     end
 
@@ -698,10 +637,8 @@ function module:RefreshPingButton()
 
     if self:IsPingButtonEnabled() and worldMapFrame:IsShown() then
         button:Show()
-        self:DebugState("pingButton", "ping button shown")
     else
         button:Hide()
-        self:DebugState("pingButton", "ping button hidden")
     end
 end
 
@@ -828,7 +765,6 @@ function module:ResolvePlayerPin()
 
     local playerPin = self.runtime.resolvedPin
     if self:FrameLooksLikePlayerPin(playerPin) then
-        self:DebugState("playerPin", "player pin resolved: " .. self:DescribeFrame(playerPin))
         return playerPin
     end
 
@@ -846,14 +782,12 @@ function module:ResolvePlayerPin()
             playerPin = self:FindPlayerPin(root, 0)
             if playerPin then
                 self.runtime.resolvedPin = playerPin
-                self:DebugState("playerPin", "player pin resolved: " .. self:DescribeFrame(playerPin))
                 return playerPin
             end
         end
     end
 
     self.runtime.resolvedPin = nil
-    self:DebugState("playerPin", "player pin resolved: failed")
     return nil
 end
 
@@ -861,7 +795,6 @@ function module:ResolvePlayerCoordinates()
     local overlayParent = self:ResolveOverlayParent()
     local mapID = self:GetCurrentMapID()
     if not overlayParent or not mapID then
-        self:DebugState("playerCoords", "player coordinates failed")
         return nil
     end
 
@@ -880,12 +813,10 @@ function module:ResolvePlayerCoordinates()
     end
 
     if type(x) ~= "number" or type(y) ~= "number" then
-        self:DebugState("playerCoords", "player coordinates failed")
         return nil
     end
 
     if x <= 0 or y <= 0 or x > 1 or y > 1 then
-        self:DebugState("playerCoords", "player coordinates failed")
         return nil
     end
 
@@ -904,11 +835,9 @@ function module:ResolvePlayerCoordinates()
     local width = coordinateParent.GetWidth and coordinateParent:GetWidth() or 0
     local height = coordinateParent.GetHeight and coordinateParent:GetHeight() or 0
     if width <= 0 or height <= 0 then
-        self:DebugState("playerCoords", "player coordinates failed")
         return nil
     end
 
-    self:DebugState("playerCoords", string.format("player coordinates resolved: map=%s x=%.3f y=%.3f", tostring(mapID), x, y))
     return x, y, coordinateParent
 end
 
