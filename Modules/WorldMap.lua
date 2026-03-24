@@ -128,7 +128,7 @@ module = SnailStuff:CreateModule("WorldMap", {
         build = function(page)
             local worldMapSection = page:CreateSection("World Map", "")
             page:AnchorTopLevel(worldMapSection)
-            worldMapSection:SetHeight(392)
+            worldMapSection:SetHeight(435)
             worldMapSection.description:Hide()
             worldMapSection.contentArea:ClearAllPoints()
             worldMapSection.contentArea:SetPoint("TOPLEFT", worldMapSection.separator, "BOTTOMLEFT", 0, -10)
@@ -524,11 +524,11 @@ function module:PositionPingButton()
     button:ClearAllPoints()
 
     if anchor == worldMapFrame then
-        button:SetPoint("BOTTOMLEFT", worldMapFrame, "BOTTOMLEFT", 14, 36)
+        button:SetPoint("BOTTOMLEFT", worldMapFrame, "BOTTOMLEFT", 0, 0)
         return
     end
 
-    button:SetPoint("BOTTOMLEFT", anchor, "BOTTOMLEFT", 12, 10)
+    button:SetPoint("BOTTOMLEFT", anchor, "BOTTOMLEFT", 23, 48)
 end
 
 function module:EnsurePingButton()
