@@ -813,15 +813,27 @@ function module:ResolvePlayerCoordinates()
         return nil
     end
 
-    local width = overlayParent.GetWidth and overlayParent:GetWidth() or 0
-    local height = overlayParent.GetHeight and overlayParent:GetHeight() or 0
+    local worldMapFrame = self:GetWorldMapFrame()
+    local coordinateParent = overlayParent
+    if worldMapFrame and worldMapFrame.ScrollContainer then
+        local scrollContainer = worldMapFrame.ScrollContainer
+        local scrollChild = scrollContainer.Child or scrollContainer.ScrollChild
+        if self:IsDrawableFrame(scrollChild) then
+            coordinateParent = scrollChild
+        elseif self:IsDrawableFrame(scrollContainer) then
+            coordinateParent = scrollContainer
+        end
+    end
+
+    local width = coordinateParent.GetWidth and coordinateParent:GetWidth() or 0
+    local height = coordinateParent.GetHeight and coordinateParent:GetHeight() or 0
     if width <= 0 or height <= 0 then
         self:DebugState("playerCoords", "player coordinates failed")
         return nil
     end
 
     self:DebugState("playerCoords", string.format("player coordinates resolved: map=%s x=%.3f y=%.3f", tostring(mapID), x, y))
-    return x, y, overlayParent
+    return x, y, coordinateParent
 end
 
 function module:GetGlowSize()
@@ -921,8 +933,8 @@ function module:AnchorGlowToPosition(x, y, parent)
 
     glowFrame:ClearAllPoints()
     glowFrame:SetPoint("CENTER", parent, "TOPLEFT", x * parent:GetWidth(), -y * parent:GetHeight())
-    glowFrame:SetFrameStrata(parent:GetFrameStrata())
-    glowFrame:SetFrameLevel((parent:GetFrameLevel() or 1) + 2)
+    glowFrame:SetFrameStrata("DIALOG")
+    glowFrame:SetFrameLevel((parent:GetFrameLevel() or 1) + 20)
 
     self.runtime.lastAnchorMode = "position"
     self:ApplyGlowVisuals(glowFrame)
@@ -954,19 +966,19 @@ function module:AnchorPingToPosition(x, y, parent)
 
     pingFrame:ClearAllPoints()
     pingFrame:SetPoint("CENTER", parent, "TOPLEFT", x * parent:GetWidth(), -y * parent:GetHeight())
-    pingFrame:SetFrameStrata(parent:GetFrameStrata())
-    pingFrame:SetFrameLevel((parent:GetFrameLevel() or 1) + 3)
+    pingFrame:SetFrameStrata("DIALOG")
+    pingFrame:SetFrameLevel((parent:GetFrameLevel() or 1) + 21)
     return true
 end
 
 function module:ResolvePlayerMarker()
     local x, y, parent = self:ResolvePlayerCoordinates()
-    local playerPin = self:ResolvePlayerPin()
 
     if x and y and parent then
         return "position", x, y, parent
     end
 
+    local playerPin = self:ResolvePlayerPin()
     if playerPin then
         return "pin", playerPin
     end
