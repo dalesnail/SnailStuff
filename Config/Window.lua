@@ -799,8 +799,25 @@ end
 function SnailStuff:BuildPage(definition, parent)
     local page = CreateScrollPage(parent, definition)
     page.definition = definition
+    page.flowBottom = nil
+    page.flowHeight = 0
     page.AnchorTopLevel = function(_, frame, previous, spacing)
         AnchorTopLevel(page.content, frame, previous, spacing)
+    end
+    page.AnchorFlow = function(_, frame, spacing)
+        AnchorTopLevel(page.content, frame, page.flowBottom, spacing)
+
+        local frameHeight = frame.GetHeight and frame:GetHeight() or 0
+        if page.flowBottom then
+            page.flowHeight = page.flowHeight + (spacing or 12) + frameHeight
+        else
+            page.flowHeight = frameHeight
+        end
+
+        page.flowBottom = frame
+    end
+    page.FinalizeFlow = function(_, bottomPadding)
+        page.content:SetHeight((page.flowHeight or 0) + (bottomPadding or 0))
     end
     page.AnchorSectionControl = function(_, section, frame, previous, spacing, leftOffset, rightOffset)
         AnchorSectionControl(section, frame, previous, spacing, leftOffset, rightOffset)

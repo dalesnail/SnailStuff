@@ -123,12 +123,12 @@ module = SnailStuff:CreateModule("WorldMap", {
     page = {
         key = "ui",
         title = "UI",
-        subtitle = "UI modules for map and player-visibility improvements live here.",
+        subtitle = "UI modules for map, talent, and player-visibility improvements live here.",
         order = 25,
         build = function(page)
             local worldMapSection = page:CreateSection("World Map", "")
-            page:AnchorTopLevel(worldMapSection)
             worldMapSection:SetHeight(435)
+            page:AnchorFlow(worldMapSection)
             worldMapSection.description:Hide()
             worldMapSection.contentArea:ClearAllPoints()
             worldMapSection.contentArea:SetPoint("TOPLEFT", worldMapSection.separator, "BOTTOMLEFT", 0, -10)
@@ -211,7 +211,7 @@ module = SnailStuff:CreateModule("WorldMap", {
                 SetNumericSetting("pingDuration", value)
             end)
 
-            page.content:SetHeight(worldMapSection:GetHeight() + 16)
+            page:FinalizeFlow(16)
 
             page.RefreshControls = function()
                 local settings = module:GetSettings()

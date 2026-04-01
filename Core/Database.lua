@@ -10,6 +10,12 @@ local defaults = {
         },
         modules = {},
     },
+    global = {
+        talentPlanner = {
+            drafts = {},
+            profiles = {},
+        },
+    },
 }
 
 function SnailStuff:BuildDefaults()

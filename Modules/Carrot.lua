@@ -27,6 +27,11 @@ local BAG_SCAN_DELAY = 0.15
 local EVALUATION_DELAY = 0.05
 local WATCH_INTERVAL = 0.35
 local ACTION_RETRY_DELAY = 0.75
+local LOGIN_STABILIZE_DELAY = 1.25
+local WARNING_THROTTLE = 90
+local WARNING_DISMOUNT_BUFFER = 1.75
+local WARNING_SWIM_EXIT_BUFFER = 1.25
+local WARNING_SUBMERGE_EXIT_BUFFER = 1.25
 local NOTIFICATION_COLOR = { 1, 0.82, 0 }
 
 local MOUNT_TRINKET_IDS = {
@@ -42,6 +47,16 @@ local MOUNT_TRINKET_PRIORITY = {
 }
 
 local TRACKED_SLOT_KEYS = { "trinket", "hands", "feet", "belt", "head" }
+local MANAGED_EQUIPMENT_SLOTS = { SLOT_TRINKET_1, SLOT_TRINKET_2, SLOT_HANDS, SLOT_FEET, SLOT_WAIST, SLOT_HEAD }
+
+local NORMAL_CACHE_KEYS = {
+    [SLOT_TRINKET_1] = "trinket13",
+    [SLOT_TRINKET_2] = "trinket14",
+    [SLOT_HANDS] = "hands",
+    [SLOT_FEET] = "feet",
+    [SLOT_WAIST] = "belt",
+    [SLOT_HEAD] = "head",
+}
 
 local module
 
@@ -106,6 +121,7 @@ module = SnailStuff:CreateModule("Carrot", {
     defaults = {
         enabled = true,
         notifications = false,
+        warnings = false,
         carrot = true,
         ridingGloves = true,
         mithrilSpurs = true,
@@ -113,6 +129,7 @@ module = SnailStuff:CreateModule("Carrot", {
         swimHelm = true,
         disableInInstances = false,
         preferredTrinketSlot = SLOT_TRINKET_2,
+        normalGearCache = {},
     },
     page = {
         key = "automation",
@@ -248,6 +265,9 @@ module = SnailStuff:CreateModule("Carrot", {
             local notificationsToggle = CreateCompactCheckbox(topRow, "Notifications", "notifications", "Print concise yellow chat messages when Carrot equips gear automatically.", nil, "left")
             notificationsToggle:SetPoint("RIGHT", enableToggle.label, "LEFT", -16, 0)
 
+            local warningsToggle = CreateCompactCheckbox(topRow, "Warnings", "warnings", "Warn when special Carrot gear appears stuck outside its intended state.", nil, "left")
+            warningsToggle:SetPoint("RIGHT", notificationsToggle.label, "LEFT", -16, 0)
+
             local grid = CreateFrame("Frame", nil, content)
             grid:SetPoint("TOPLEFT", topRow, "BOTTOMLEFT", 0, -gridTopSpacing)
             grid:SetPoint("TOPRIGHT", topRow, "BOTTOMRIGHT", 0, -gridTopSpacing)
@@ -281,7 +301,7 @@ module = SnailStuff:CreateModule("Carrot", {
             local instances = CreateCompactCheckbox(rightColumn, "Disable In Instances", "disableInInstances", "Suspend Carrot inside instances and resume outside.")
             instances:SetPoint("TOPLEFT", belt, "BOTTOMLEFT", 0, -8)
 
-            page.rows = { enableToggle, notificationsToggle, gloves, boots, instances, belt, helm, carrotToggle }
+            page.rows = { enableToggle, notificationsToggle, warningsToggle, gloves, boots, instances, belt, helm, carrotToggle }
             page.slotCluster = slotCluster
             page.content:SetHeight(carrotSection:GetHeight() + sectionBottomPadding)
 
@@ -341,7 +361,20 @@ function module:EnsureRuntime()
         evaluationTimer = nil,
         scanTimer = nil,
         watchTimer = nil,
+        stabilizationTimer = nil,
         lastEnvironment = nil,
+        stateTransitions = {
+            leftMountedAt = 0,
+            leftSwimmingAt = 0,
+            leftSubmergedAt = 0,
+        },
+        warnings = {
+            trinket = self:CreateWarningRecord("Mount trinket still equipped."),
+            hands = self:CreateWarningRecord("Riding gloves still equipped."),
+            feet = self:CreateWarningRecord("Mithril Spurs still equipped."),
+            belt = self:CreateWarningRecord("Swim belt still equipped."),
+            head = self:CreateWarningRecord("Diving helm still equipped."),
+        },
         inventory = {
             mountItemID = nil,
             mountItemRef = nil,
@@ -375,6 +408,14 @@ function module:CreateSlotRecord(key, slot, category)
     }
 end
 
+function module:CreateWarningRecord(message)
+    return {
+        message = message,
+        lastAt = 0,
+        ready = true,
+    }
+end
+
 function module:ResetSlotRecord(record)
     record.savedRef = nil
     record.savedItemID = nil
@@ -385,6 +426,221 @@ function module:ResetSlotRecord(record)
     record.restoreAttempted = false
     record.manualOverride = false
     record.lastAttemptAt = 0
+end
+
+function module:GetNormalGearCache()
+    local settings = self:GetSettings()
+    settings.normalGearCache = settings.normalGearCache or {}
+    return settings.normalGearCache
+end
+
+function module:GetNormalCacheKey(slot)
+    return NORMAL_CACHE_KEYS[slot]
+end
+
+function module:GetSlotIdentity(slot)
+    return GetInventoryItemID("player", slot), GetEquippedEnchantID(slot), GetEquippedItemReference(slot)
+end
+
+function module:IsSpecialUtilityForSlot(slot, itemID, enchantID)
+    if slot == SLOT_TRINKET_1 or slot == SLOT_TRINKET_2 then
+        return itemID and MOUNT_TRINKET_IDS[itemID] or false
+    end
+
+    if slot == SLOT_HANDS then
+        return enchantID == ENCHANT_RIDING_GLOVES
+    end
+
+    if slot == SLOT_FEET then
+        return enchantID == ENCHANT_MITHRIL_SPURS
+    end
+
+    if slot == SLOT_WAIST then
+        return itemID == ITEM_SWIM_BELT
+    end
+
+    if slot == SLOT_HEAD then
+        return itemID == ITEM_DIVING_HELM
+    end
+
+    return false
+end
+
+function module:IsValidNormalSlotItem(slot, itemID, enchantID, itemRef)
+    if (not itemRef and not itemID) or self:IsSpecialUtilityForSlot(slot, itemID, enchantID) then
+        return false
+    end
+
+    return true
+end
+
+function module:GetPersistentNormalReference(slot)
+    local cacheKey = self:GetNormalCacheKey(slot)
+    if not cacheKey then
+        return nil, nil
+    end
+
+    local entry = self:GetNormalGearCache()[cacheKey]
+    if not entry then
+        return nil, nil
+    end
+
+    return entry.ref or entry.itemID, entry.itemID
+end
+
+function module:PersistNormalItem(slot, itemRef, itemID)
+    local cacheKey = self:GetNormalCacheKey(slot)
+    if not cacheKey or (not itemRef and not itemID) then
+        return false
+    end
+
+    local cache = self:GetNormalGearCache()
+    local normalizedRef = itemRef or itemID
+    local existing = cache[cacheKey]
+    if existing and existing.ref == normalizedRef and existing.itemID == itemID then
+        return false
+    end
+
+    cache[cacheKey] = {
+        ref = normalizedRef,
+        itemID = itemID,
+    }
+
+    return true
+end
+
+function module:RefreshNormalCacheForSlot(slot)
+    local itemID, enchantID, itemRef = self:GetSlotIdentity(slot)
+    if not self:IsValidNormalSlotItem(slot, itemID, enchantID, itemRef) then
+        return false
+    end
+
+    return self:PersistNormalItem(slot, itemRef, itemID)
+end
+
+function module:RefreshNormalCacheFromEquipment()
+    for _, slot in ipairs(MANAGED_EQUIPMENT_SLOTS) do
+        self:RefreshNormalCacheForSlot(slot)
+    end
+end
+
+function module:ResetWarningRecord(key)
+    local warning = self.runtime and self.runtime.warnings and self.runtime.warnings[key]
+    if not warning then
+        return
+    end
+
+    warning.lastAt = 0
+    warning.ready = true
+end
+
+function module:TrackStateTransitions(previousEnvironment, environment)
+    local transitions = self.runtime and self.runtime.stateTransitions
+    if not transitions or not previousEnvironment or not environment then
+        return
+    end
+
+    local now = GetTime()
+
+    if previousEnvironment.mounted and not environment.mounted then
+        transitions.leftMountedAt = now
+    end
+
+    if previousEnvironment.swimming and not environment.swimming then
+        transitions.leftSwimmingAt = now
+    end
+
+    if previousEnvironment.submerged and not environment.submerged then
+        transitions.leftSubmergedAt = now
+    end
+end
+
+function module:GetWarningBufferRemaining(record)
+    local transitions = self.runtime and self.runtime.stateTransitions
+    if not transitions then
+        return 0
+    end
+
+    local now = GetTime()
+
+    if record.key == "trinket" or record.key == "hands" or record.key == "feet" then
+        return WARNING_DISMOUNT_BUFFER - (now - (transitions.leftMountedAt or 0))
+    end
+
+    if record.key == "belt" then
+        return WARNING_SWIM_EXIT_BUFFER - (now - (transitions.leftSwimmingAt or 0))
+    end
+
+    if record.key == "head" then
+        return WARNING_SUBMERGE_EXIT_BUFFER - (now - (transitions.leftSubmergedAt or 0))
+    end
+
+    return 0
+end
+
+function module:IsWarningEligible(record, environment)
+    if not self:IsWarningOffenseActive(record) or not self:IsWarningConditionMet(record, environment) then
+        return false
+    end
+
+    return self:GetWarningBufferRemaining(record) <= 0
+end
+
+function module:IsWarningConditionMet(record, environment)
+    if record.key == "trinket" or record.key == "hands" or record.key == "feet" then
+        return not environment.mounted and not UnitOnTaxi("player")
+    end
+
+    if record.key == "belt" then
+        return not environment.swimming
+    end
+
+    if record.key == "head" then
+        return not environment.submerged
+    end
+
+    return false
+end
+
+function module:IsWarningOffenseActive(record)
+    local itemID, enchantID = self:GetSlotIdentity(record.slot)
+    return self:IsSpecialUtilityForSlot(record.slot, itemID, enchantID)
+end
+
+function module:ProcessSlotWarning(record, environment)
+    local warning = self.runtime and self.runtime.warnings and self.runtime.warnings[record.key]
+    if not warning then
+        return
+    end
+
+    if not self:IsWarningOffenseActive(record) or not self:IsWarningConditionMet(record, environment) then
+        self:ResetWarningRecord(record.key)
+        return
+    end
+
+    if not self:IsWarningEligible(record, environment) then
+        self:ResetWarningRecord(record.key)
+        return
+    end
+
+    if warning.ready or (GetTime() - warning.lastAt) >= WARNING_THROTTLE then
+        self:Notify(warning.message)
+        warning.lastAt = GetTime()
+        warning.ready = false
+    end
+end
+
+function module:ProcessWarnings(environment)
+    local settings = self:GetSettings()
+
+    for _, key in ipairs(TRACKED_SLOT_KEYS) do
+        local record = self.runtime.slots[key]
+        if not self:IsWarningOffenseActive(record) or not self:IsWarningConditionMet(record, environment) then
+            self:ResetWarningRecord(record.key)
+        elseif environment.operational and settings.warnings and not InCombatLockdown() then
+            self:ProcessSlotWarning(record, environment)
+        end
+    end
 end
 
 function module:IsOperationalEnabled()
@@ -510,8 +766,15 @@ function module:AttemptEquip(record, reference)
 end
 
 function module:CaptureSavedItem(record)
-    record.savedRef = GetEquippedItemReference(record.slot)
-    record.savedItemID = GetInventoryItemID("player", record.slot)
+    local itemID, enchantID, itemRef = self:GetSlotIdentity(record.slot)
+    if self:IsValidNormalSlotItem(record.slot, itemID, enchantID, itemRef) then
+        record.savedRef = itemRef or itemID
+        record.savedItemID = itemID
+        self:PersistNormalItem(record.slot, itemRef, itemID)
+        return
+    end
+
+    record.savedRef, record.savedItemID = self:GetPersistentNormalReference(record.slot)
 end
 
 function module:MarkRemovalNotification(record, notifications)
@@ -578,14 +841,19 @@ function module:FinalizeRecordState(record, wantsSpecial, notifications)
     end
 
     if wantsSpecial and (record.active or record.awaiting) and record.desired and self:HasPlayerReplacedManagedItem(record) then
+        local itemID, enchantID, itemRef = self:GetSlotIdentity(record.slot)
+        if self:IsValidNormalSlotItem(record.slot, itemID, enchantID, itemRef) then
+            record.savedRef = itemRef or itemID
+            record.savedItemID = itemID
+            self:PersistNormalItem(record.slot, itemRef, itemID)
+        end
+
         record.active = false
         record.awaiting = false
         record.pendingRestore = false
         record.restoreAttempted = false
         record.manualOverride = true
         record.desired = nil
-        record.savedRef = nil
-        record.savedItemID = nil
         record.lastAttemptAt = 0
     end
 end
@@ -635,7 +903,13 @@ function module:RestoreSlot(record, notifications)
         return
     end
 
-    if not record.savedRef or not record.desired then
+    local restoreRef = record.savedRef
+    local restoreItemID = record.savedItemID
+    if not restoreRef then
+        restoreRef, restoreItemID = self:GetPersistentNormalReference(record.slot)
+    end
+
+    if not restoreRef or not record.desired then
         self:ResetSlotRecord(record)
         return
     end
@@ -645,7 +919,7 @@ function module:RestoreSlot(record, notifications)
         return
     end
 
-    if record.key == "trinket" and record.savedItemID and GetInventoryItemID("player", self:GetOtherTrinketSlot()) == record.savedItemID then
+    if record.key == "trinket" and restoreItemID and GetInventoryItemID("player", self:GetOtherTrinketSlot()) == restoreItemID then
         self:ResetSlotRecord(record)
         return
     end
@@ -660,7 +934,7 @@ function module:RestoreSlot(record, notifications)
         return
     end
 
-    if self:AttemptEquip(record, record.savedRef) then
+    if self:AttemptEquip(record, restoreRef) then
         record.pendingRestore = true
         record.restoreAttempted = true
         record.awaiting = false
@@ -894,6 +1168,7 @@ function module:EvaluateState()
     local environment = self:GetEnvironmentState()
     local notifications = self:CreateNotificationState()
     local desired = self:BuildDesiredState(environment)
+    self:TrackStateTransitions(self.runtime.lastEnvironment, environment)
 
     if not environment.operational then
         self:RestoreManagedGear(notifications)
@@ -912,6 +1187,9 @@ function module:EvaluateState()
             self:RestoreSlot(record, notifications)
         end
     end
+
+    self:RefreshNormalCacheFromEquipment()
+    self:ProcessWarnings(environment)
 
     self.runtime.lastEnvironment = environment
     self:FlushNotifications(notifications)
@@ -973,6 +1251,11 @@ function module:OnDisable()
         self.runtime.watchTimer = nil
     end
 
+    if self.runtime.stabilizationTimer then
+        self:CancelTimer(self.runtime.stabilizationTimer, true)
+        self.runtime.stabilizationTimer = nil
+    end
+
     if self.runtime then
         self:RestoreManagedGear()
     end
@@ -982,10 +1265,22 @@ function module:OnPlayerEnteringWorld()
     self.runtime.hasEnteredWorld = true
     self:ScheduleInventoryScan()
     self:HandleStateTransition()
+
+    if self.runtime.stabilizationTimer then
+        self:CancelTimer(self.runtime.stabilizationTimer, true)
+    end
+
+    self.runtime.stabilizationTimer = self:ScheduleTimer("RunLoginStabilizationPass", LOGIN_STABILIZE_DELAY)
 end
 
 function module:OnPlayerLeavingWorld()
     self.runtime.hasEnteredWorld = false
+
+    if self.runtime.stabilizationTimer then
+        self:CancelTimer(self.runtime.stabilizationTimer, true)
+        self.runtime.stabilizationTimer = nil
+    end
+
     self:RefreshWatcher({
         operational = false,
         mounted = false,
@@ -1030,4 +1325,16 @@ function module:OnUnitInventoryChanged(unit)
         self:ScheduleInventoryScan()
         self:QueueEvaluation()
     end
+end
+
+function module:RunLoginStabilizationPass()
+    self.runtime.stabilizationTimer = nil
+
+    if not self:IsEnabled() or not self:CanProcess() then
+        return
+    end
+
+    self:RefreshNormalCacheFromEquipment()
+    self:ScheduleInventoryScan()
+    self:QueueEvaluation(EVALUATION_DELAY)
 end

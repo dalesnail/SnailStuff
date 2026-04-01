@@ -50,9 +50,22 @@ function SnailStuff:RegisterPage(definition)
 
     local existing = self.pageDefinitions[definition.key]
     local entry = existing or {}
+    local incomingBuild = definition.build
 
     for key, value in pairs(definition) do
-        entry[key] = value
+        if key ~= "build" then
+            entry[key] = value
+        end
+    end
+
+    if incomingBuild then
+        entry.builders = entry.builders or {}
+        entry.builders[#entry.builders + 1] = incomingBuild
+        entry.build = function(page)
+            for index = 1, #entry.builders do
+                entry.builders[index](page)
+            end
+        end
     end
 
     entry.order = entry.order or 100

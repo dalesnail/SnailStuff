@@ -14,3 +14,8 @@ Core\SlashCommands.lua
 Config\Window.lua
 Modules\Carrot.lua
 Modules\WorldMap.lua
+Modules\TalentTree.lua
+Modules\TalentPlannerData.lua
+Modules\TalentPlannerLogic.lua
+Modules\TalentPlannerUI.lua
+Modules\TalentPlanner.lua
