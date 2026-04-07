@@ -535,11 +535,23 @@ function UI:HandleTalentClick(treeIndex, talentIndex, button)
     local draft = self:GetDraft()
     draft.activeTree = treeIndex
 
-    local changed
+    local changed = false
     if button == "LeftButton" then
-        changed = Logic:AddPoint(treeIndex, talentIndex, draft)
+        if IsShiftKeyDown() then
+            while Logic:AddPoint(treeIndex, talentIndex, draft) do
+                changed = true
+            end
+        else
+            changed = Logic:AddPoint(treeIndex, talentIndex, draft)
+        end
     elseif button == "RightButton" then
-        changed = Logic:RemovePoint(treeIndex, talentIndex, draft)
+        if IsShiftKeyDown() then
+            while Logic:RemovePoint(treeIndex, talentIndex, draft) do
+                changed = true
+            end
+        else
+            changed = Logic:RemovePoint(treeIndex, talentIndex, draft)
+        end
     end
 
     if changed then

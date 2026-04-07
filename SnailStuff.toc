@@ -4,6 +4,7 @@
 ## Author: OpenAI
 ## Version: 0.1.0
 ## SavedVariables: SnailStuffDB
+## Bindings: Bindings.xml
 
 Embeds.xml
 
@@ -19,3 +20,8 @@ Modules\TalentPlannerData.lua
 Modules\TalentPlannerLogic.lua
 Modules\TalentPlannerUI.lua
 Modules\TalentPlanner.lua
+Modules\Notes\NotesGuideData.lua
+Modules\Notes\Notes.lua
+Modules\Notes\NotesRender.lua
+Modules\Notes\NotesImportExport.lua
+Modules\Notes\NotesUI.lua

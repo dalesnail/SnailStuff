@@ -1,6 +1,14 @@
 local _, ns = ...
 local SnailStuff = ns.SnailStuff
 
+BINDING_NAME_SNAILSTUFF_TOGGLE_NOTES = "Toggle Notes Window"
+
+function SnailStuff_ToggleNotesBinding()
+    if SnailStuff and SnailStuff.ToggleNotesWindow then
+        SnailStuff:ToggleNotesWindow()
+    end
+end
+
 local function NormalizeToken(value)
     if not value then
         return nil
@@ -18,6 +26,46 @@ function SnailStuff:SetupSlashCommands()
     self:RegisterChatCommand("snailstuff", "HandleSlashCommand")
     self:RegisterChatCommand("snail", "HandleSlashCommand")
     self:RegisterChatCommand("ss", "HandleSlashCommand")
+    self:RegisterChatCommand("ssnotes", "HandleNotesSlashCommand")
+    self:RegisterChatCommand("notes", "HandleNotesSlashCommand")
+end
+
+function SnailStuff:OpenNotesWindow()
+    local module = self:GetModule("Notes", true)
+    if not module or not module.OpenWindow then
+        self:PrintMessage("Notes is not available.")
+        return
+    end
+
+    module:OpenWindow()
+end
+
+function SnailStuff:CloseNotesWindow()
+    local module = self:GetModule("Notes", true)
+    if not module or not module.CloseWindow then
+        return
+    end
+
+    module:CloseWindow()
+end
+
+function SnailStuff:ToggleNotesWindow()
+    local module = self:GetModule("Notes", true)
+    if not module or not module.OpenWindow or not module.CloseWindow then
+        self:PrintMessage("Notes is not available.")
+        return
+    end
+
+    if module.IsWindowOpen and module:IsWindowOpen() then
+        module:CloseWindow()
+        return
+    end
+
+    module:OpenWindow()
+end
+
+function SnailStuff:HandleNotesSlashCommand()
+    self:ToggleNotesWindow()
 end
 
 function SnailStuff:HandleSlashCommand(input)
@@ -39,6 +87,11 @@ function SnailStuff:HandleSlashCommand(input)
         return
     end
 
+    if command == "notes" then
+        self:ToggleNotesWindow()
+        return
+    end
+
     local target = NormalizeToken(remainder)
     if command == "module" and target then
         for moduleName, definition in pairs(self.moduleDefinitions) do
@@ -50,5 +103,5 @@ function SnailStuff:HandleSlashCommand(input)
         end
     end
 
-    self:PrintMessage("Commands: /ss, /ss automation, /ss about, /ss module carrot")
+    self:PrintMessage("Commands: /ss, /ss automation, /ss about, /ss notes, /ss module carrot, /ssnotes, /notes")
 end
